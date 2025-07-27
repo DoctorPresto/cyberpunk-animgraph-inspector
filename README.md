@@ -1,2 +1,1 @@
-# cyberpunk-animgraph-inspector
-A simple tool for working with Cyberpunk 2077 Animgraphs 
+## A simple tool to visualize and inspect cyberpunk 2077 animgraphs
