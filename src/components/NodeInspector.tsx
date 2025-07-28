@@ -83,24 +83,9 @@ function PropertyDisplay({
       return "null";
     }
     
-    if (typeof value === 'object') {
-      // Handle special value objects - extract $value if present
-      if (value.$value !== undefined) {
-        return String(value.$value);
-      }
-      
-      // For objects without $value, show a simplified representation
-      if (Array.isArray(value)) {
-        return `[Array with ${value.length} items]`;
-      }
-      
-      // For objects, show a count of meaningful properties
-      const meaningfulKeys = Object.keys(value).filter(key => !key.startsWith('$') && key !== 'HandleId');
-      if (meaningfulKeys.length === 0) {
-        return "[Empty Object]";
-      }
-      
-      return `[Object with ${meaningfulKeys.length} properties]`;
+    // Handle special value objects - extract $value if present
+    if (typeof value === 'object' && value.$value !== undefined) {
+      return String(value.$value);
     }
     
     return String(value);
@@ -139,6 +124,33 @@ function PropertyDisplay({
     return Array.isArray(value) && value.length > 0;
   };
 
+  const isCollapsibleObject = (value: any): boolean => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+    
+    // Don't treat simple value objects as collapsible
+    if (value.$value !== undefined && Object.keys(value).length <= 2) {
+      return false;
+    }
+    
+    // Check if it has meaningful nested properties
+    const meaningfulKeys = Object.keys(value).filter(shouldShowProperty);
+    return meaningfulKeys.length > 0;
+  };
+
+
+  const getNodeIdFromReference = (value: any): string | null => {
+    if (!value || typeof value !== 'object') return null;
+    
+    if (value.HandleRefId) return value.HandleRefId;
+    if (value.HandleId) return value.HandleId;
+    if (value.node && typeof value.node === 'object') {
+      return (value.node as any).HandleRefId || (value.node as any).HandleId || null;
+    }
+    
+    return null;
+  };
   const getConnectedNodeInfo = (nodeId: string) => {
     const nodeData = nodeRegistry.get(nodeId);
     if (!nodeData) return { name: 'Unknown Node', type: 'Unknown' };
@@ -202,7 +214,7 @@ function PropertyDisplay({
     return nodeIds.filter(id => nodeRegistry.has(id));
   };
   
-  const renderNestedProperties = (obj: any, parentKey: string, currentDepth: number, basePath: string = '') => {
+  const renderNestedProperties = (obj: any, parentKey: string, currentDepth: number, basePath: string = ''): JSX.Element => {
     if (currentDepth > 5) {
       // Prevent infinite recursion
       return <span className="nested-direct-value">[Max depth reached]</span>;
@@ -222,11 +234,42 @@ function PropertyDisplay({
             >
               {isCollapsed ? '▶' : '▼'}
             </button>
-            <span className="array-info">Array ({obj.length} items)</span>
           </div>
           {!isCollapsed && obj.map((item: any, index: number) => {
+            // Check if this item is a node reference
+            const nodeId = getNodeIdFromReference(item);
+            const isNodeRef = nodeId && nodeRegistry.has(nodeId);
+            
+            if (isNodeRef) {
+              const nodeInfo = getConnectedNodeInfo(nodeId);
+              return (
+                <div key={`${parentKey}-${index}`} className="nested-property-item connected">
+                  <div className="nested-property-key" style={{ paddingLeft: `${Math.min(currentDepth * 10, 40)}px` }}>
+                    [{index}]:
+                  </div>
+                  <div className="nested-property-value">
+                    <div className="connection-info">
+                      <span className="connected-label">Connected Node:</span>
+                      <div className="connected-data">
+                        <div className="connected-node-header">
+                          <div className="connected-node-name">{nodeInfo.name}</div>
+                          <div className="connected-node-id">ID: {nodeId}</div>
+                          <button 
+                            className="jump-to-node-button"
+                            onClick={() => handleJumpToNode(nodeId)}
+                            title={`Jump to node ${nodeId}`}
+                          >
+                            🔗 Jump
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
             // For primitive values in arrays
-            if (typeof item !== 'object' || item === null) {
+            else if (typeof item !== 'object' || item === null) {
               return (
                 <div key={`${parentKey}-${index}`} className="nested-property-item">
                   <div className="nested-property-key" style={{ paddingLeft: `${Math.min(currentDepth * 10, 40)}px` }}>
@@ -240,9 +283,9 @@ function PropertyDisplay({
             }
 
             // For objects in arrays
-            const hasNestedProps = Object.keys(item).filter(shouldShowProperty).length > 0;
+            const needsNesting = isNestedObject(item) || isNestedArray(item) || isCollapsibleObject(item);
             
-            if (hasNestedProps) {
+            if (needsNesting) {
               return (
                 <div key={`${parentKey}-${index}`} className="nested-array-item">
                   <div className="nested-property-key" style={{ paddingLeft: `${Math.min(currentDepth * 10, 40)}px` }}>
@@ -272,6 +315,90 @@ function PropertyDisplay({
       );
     }
 
+    // Handle collapsible objects (dictionaries)
+    if (isCollapsibleObject(obj)) {
+      const objectPath = basePath ? `${basePath}.${parentKey}` : parentKey;
+      const isCollapsed = collapsedArrays.has(objectPath);
+      
+      const properties = [];
+      for (const [key, value] of Object.entries(obj)) {
+        if (shouldShowProperty(key)) {
+          properties.push({ key, value });
+        }
+      }
+      
+      return (
+        <div className="nested-object-collapsible" style={{ marginLeft: `${Math.min(currentDepth * 15, 60)}px` }}>
+          <div className="array-header">
+            <button 
+              className="array-collapse-button"
+              onClick={() => toggleArrayCollapse(objectPath)}
+              title={isCollapsed ? 'Expand object' : 'Collapse object'}
+            >
+              {isCollapsed ? '▶' : '▼'}
+            </button>
+          </div>
+          {!isCollapsed && (
+            <div className="nested-properties" style={{ marginLeft: `${Math.min(currentDepth * 15, 60)}px` }}>
+              {properties.map(({ key, value }, index) => {
+                const nodeId = getNodeIdFromReference(value);
+                const isNodeRef = nodeId && nodeRegistry.has(nodeId);
+                
+                if (isNodeRef) {
+                  const nodeInfo = getConnectedNodeInfo(nodeId);
+                  return (
+                    <div key={`${parentKey}-${key}-${index}`} className="nested-property-item connected">
+                      <div className="nested-property-key" style={{ paddingLeft: `${Math.min(currentDepth * 10, 40)}px` }}>
+                        {key}:
+                      </div>
+                      <div className="nested-property-value">
+                        <div className="connection-info">
+                          <span className="connected-label">Connected Node:</span>
+                          <div className="connected-data">
+                            <div className="connected-node-header">
+                              <div className="connected-node-name">{nodeInfo.name}</div>
+                              <div className="connected-node-id">ID: {nodeId}</div>
+                              <button 
+                                className="jump-to-node-button"
+                                onClick={() => handleJumpToNode(nodeId)}
+                                title={`Jump to node ${nodeId}`}
+                              >
+                                🔗 Jump
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                // Check if this value needs further nesting
+                const needsNesting = (isNestedObject(value) || isNestedArray(value) || isCollapsibleObject(value)) && 
+                                    !(typeof value === 'object' && value !== null && (value as any).$value !== undefined && Object.keys(value as object).filter(shouldShowProperty).length <= 1);
+                
+                return (
+                  <div key={`${parentKey}-${key}-${index}`} className="nested-property-item">
+                    <div className="nested-property-key" style={{ paddingLeft: `${Math.min(currentDepth * 10, 40)}px` }}>
+                      {key}:
+                    </div>
+                    <div className="nested-property-value">
+                      {needsNesting ? (
+                        <div className="nested-object">
+                          {renderNestedProperties(value, `${parentKey}-${key}`, currentDepth + 1, objectPath)}
+                        </div>
+                      ) : (
+                        <span className="nested-direct-value">{formatValue(value)}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
     // Handle objects
     const properties = [];
     
@@ -292,8 +419,40 @@ function PropertyDisplay({
     return (
       <div className="nested-properties" style={{ marginLeft: `${Math.min(currentDepth * 15, 60)}px` }}>
         {properties.map(({ key, value }, index) => {
+          const nodeId = getNodeIdFromReference(value);
+          const isNodeRef = nodeId && nodeRegistry.has(nodeId);
+          
+          if (isNodeRef) {
+            const nodeInfo = getConnectedNodeInfo(nodeId);
+            return (
+              <div key={`${parentKey}-${key}-${index}`} className="nested-property-item connected">
+                <div className="nested-property-key" style={{ paddingLeft: `${Math.min(currentDepth * 10, 40)}px` }}>
+                  {key}:
+                </div>
+                <div className="nested-property-value">
+                  <div className="connection-info">
+                    <span className="connected-label">Connected Node:</span>
+                    <div className="connected-data">
+                      <div className="connected-node-header">
+                        <div className="connected-node-name">{nodeInfo.name}</div>
+                        <div className="connected-node-id">ID: {nodeId}</div>
+                        <button 
+                          className="jump-to-node-button"
+                          onClick={() => handleJumpToNode(nodeId)}
+                          title={`Jump to node ${nodeId}`}
+                        >
+                          🔗 Jump
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          
           // Check if this value needs further nesting
-          const needsNesting = (isNestedObject(value) || isNestedArray(value)) && 
+          const needsNesting = (isNestedObject(value) || isNestedArray(value) || isCollapsibleObject(value)) && 
                               !(typeof value === 'object' && value !== null && (value as any).$value !== undefined && Object.keys(value as object).filter(shouldShowProperty).length <= 1);
           
           return (
@@ -317,7 +476,7 @@ function PropertyDisplay({
     );
   };
 
-  const isNestedObj = !isConnection && (isNestedObject(propertyValue) || isNestedArray(propertyValue));
+  const isNestedObj = !isConnection && (isNestedObject(propertyValue) || isNestedArray(propertyValue) || isCollapsibleObject(propertyValue));
 
   return (
     <div className={`property-item ${isConnection ? 'connected' : ''} ${isNestedObj ? 'has-nested' : ''}`}>
