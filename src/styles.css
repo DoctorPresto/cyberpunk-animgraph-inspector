@@ -349,17 +349,30 @@ h1 {
   top: 100px;
   left: 20px;
   width: 400px;
-  max-height: 80vh;
+  height: 250px;
+  max-height: 90vh;
   background: #2d2d2d;
   border: 1px solid #444;
   border-radius: 8px;
   color: #fff;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   z-index: 1000;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   resize: both;
   min-width: 300px;
   min-height: 200px;
+}
+
+.inspector-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0.5rem;
+  background: #333;
+  border-top: 1px solid #444;
+  border-radius: 0 0 8px 8px;
+  min-height: 8px;
 }
 
 .node-inspector.floating.collapsed {
@@ -378,6 +391,7 @@ h1 {
   border-radius: 8px 8px 0 0;
   user-select: none;
   position: relative;
+  max-height: 24px
 }
 
 .inspector-header h3 {
@@ -406,8 +420,8 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
-  height: 24px;
+  min-width: 16px;
+  min-height: 16px;
   pointer-events: auto;
 }
 
@@ -422,9 +436,10 @@ h1 {
 }
 
 .inspector-content {
+  flex: 1 1 0;
   padding: 1rem;
   overflow-y: auto;
-  max-height: calc(80vh - 60px);
+  height: 0;
 }
 
 .inspector-search-section {
@@ -574,11 +589,83 @@ h1 {
   border: 1px solid #4CAF50;
 }
 
+.connected-node-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
 .connected-node-name {
   color: #fff;
   font-weight: 600;
   font-size: 0.85rem;
+}
+
+.connected-node-id {
+  color: #A5D6A7;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.jump-to-node-button {
+  background: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: background-color 0.2s ease;
+}
+
+.jump-to-node-button:hover {
+  background: #45a049;
+}
+
+.multiple-connections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.connection-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #2d5a2d;
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #4CAF50;
+}
+
+.connection-node-info {
+  flex-grow: 1;
+}
+
+.connection-node-name {
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.8rem;
   margin-bottom: 0.25rem;
+}
+
+.connection-node-id {
+  color: #A5D6A7;
+  font-size: 0.7rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.no-connections {
+  color: #999;
+  font-style: italic;
+  padding: 0.5rem;
+  text-align: center;
 }
 
 .connected-node-value {
@@ -671,6 +758,107 @@ h1 {
   font-style: italic;
   text-align: center;
   padding: 2rem 1rem;
+}
+
+/* Output Connections Styling */
+.output-connections {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid #444;
+}
+
+.output-connections h4 {
+  margin: 0 0 1rem 0;
+  color: #fff;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #444;
+  padding-bottom: 0.5rem;
+}
+
+.output-connections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.output-connection-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #2d4a5a;
+  padding: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #FF924C;
+  border-left: 3px solid #FF924C;
+}
+
+.output-connection-info {
+  flex-grow: 1;
+  margin-right: 0.75rem;
+}
+
+.output-connection-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.output-connection-node-name {
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.output-connection-node-id {
+  color: #FFB366;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.output-connection-socket {
+  color: #FFB366;
+  font-size: 0.8rem;
+}
+
+.socket-name {
+  color: #fff;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Resize Handle */
+.resize-handle {
+  width: 10px;
+  height: 10px;
+  background: #555;
+  cursor: nw-resize;
+  border-radius: 4px;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  
+  /* Create grip dots pattern */
+  background-image: 
+    radial-gradient(circle at 25% 25%, #888 1px, transparent 1px),
+    radial-gradient(circle at 75% 25%, #888 1px, transparent 1px),
+    radial-gradient(circle at 25% 75%, #888 1px, transparent 1px),
+    radial-gradient(circle at 75% 75%, #888 1px, transparent 1px);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 0, 0 0, 0 0;
+}
+
+.resize-handle:hover {
+  opacity: 1;
+  background-color: #666;
+  background-image: 
+    radial-gradient(circle at 25% 25%, #aaa 1px, transparent 1px),
+    radial-gradient(circle at 75% 25%, #aaa 1px, transparent 1px),
+    radial-gradient(circle at 25% 75%, #aaa 1px, transparent 1px),
+    radial-gradient(circle at 75% 75%, #aaa 1px, transparent 1px);
 }
 
 /* Custom Node Styling */

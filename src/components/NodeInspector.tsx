@@ -2,6 +2,35 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Node } from 'reactflow';
 import { SearchControls } from './SearchControls';
 
+// Helper function to get connected node information
+function getConnectedNodeInfo(nodeId: string, nodeRegistry: Map<string, any>) {
+  const nodeData = nodeRegistry.get(nodeId);
+  if (!nodeData) return { name: 'Unknown Node', type: 'Unknown' };
+  
+  const nodeType = nodeData.$type ? nodeData.$type.replace('animAnimNode_', '') : 'Unknown';
+  
+  // Try to get a meaningful name for the node
+  let nodeName = nodeType;
+  
+  // For State nodes, use the state name
+  if (nodeData.name) {
+    const name = nodeData.name.$value || nodeData.name;
+    if (name && name !== 'None') {
+      nodeName = `${nodeType}: ${name}`;
+    }
+  }
+  
+  // For animation nodes, use the animation name
+  if (nodeData.animation) {
+    const animName = nodeData.animation.$value || nodeData.animation;
+    if (animName && animName !== 'None') {
+      nodeName = `${nodeType}: ${animName}`;
+    }
+  }
+  
+  return { name: nodeName, type: nodeType };
+}
+
 interface NodeInspectorProps {
   selectedNode: Node | null;
   nodeRegistry: Map<string, any>;
@@ -18,9 +47,9 @@ interface PropertyDisplayProps {
   propertyValue: any;
   isConnection: boolean;
   connectedValue?: any;
-  connectedNodeId?: string;
+  connectedNodeId?: string | null;
   nodeRegistry: Map<string, any>;
-  depth?: number;
+  onJumpToNode?: (nodeId: string) => void;
   parentPath?: string;
 }
 
@@ -31,6 +60,7 @@ function PropertyDisplay({
   connectedValue, 
   connectedNodeId,
   nodeRegistry,
+  onJumpToNode,
   parentPath = ''
 }: PropertyDisplayProps) {
   const currentPath = parentPath ? `${parentPath}.${propertyKey}` : propertyKey;
@@ -137,6 +167,41 @@ function PropertyDisplay({
     return { name: nodeName, type: nodeType };
   };
 
+  const handleJumpToNode = (nodeId: string) => {
+    if (onJumpToNode) {
+      onJumpToNode(nodeId);
+    }
+  };
+
+  const getAllConnectedNodeIds = (value: any): string[] => {
+    const nodeIds: string[] = [];
+    
+    if (typeof value === 'object' && value !== null) {
+      if (value.HandleRefId) {
+        nodeIds.push(value.HandleRefId);
+      }
+      if (value.HandleId) {
+        nodeIds.push(value.HandleId);
+      }
+      if (value.node && (value.node.HandleRefId || value.node.HandleId)) {
+        nodeIds.push(value.node.HandleRefId || value.node.HandleId);
+      }
+      if (Array.isArray(value)) {
+        value.forEach(item => {
+          if (item && typeof item === 'object') {
+            if (item.HandleRefId) nodeIds.push(item.HandleRefId);
+            if (item.HandleId) nodeIds.push(item.HandleId);
+            if (item.node && (item.node.HandleRefId || item.node.HandleId)) {
+              nodeIds.push(item.node.HandleRefId || item.node.HandleId);
+            }
+          }
+        });
+      }
+    }
+    
+    return nodeIds.filter(id => nodeRegistry.has(id));
+  };
+  
   const renderNestedProperties = (obj: any, parentKey: string, currentDepth: number, basePath: string = '') => {
     if (currentDepth > 5) {
       // Prevent infinite recursion
@@ -229,8 +294,7 @@ function PropertyDisplay({
         {properties.map(({ key, value }, index) => {
           // Check if this value needs further nesting
           const needsNesting = (isNestedObject(value) || isNestedArray(value)) && 
-                              !(typeof value === 'object' && value !== null && '$value' in value && 
-                                Object.keys(value as Record<string, any>).filter(shouldShowProperty).length <= 1);
+                              !(typeof value === 'object' && value !== null && (value as any).$value !== undefined && Object.keys(value as object).filter(shouldShowProperty).length <= 1);
           
           return (
             <div key={`${parentKey}-${key}-${index}`} className="nested-property-item">
@@ -263,7 +327,17 @@ function PropertyDisplay({
           <div className="connection-info">
             <span className="connected-label">Connected to:</span>
             <div className="connected-data">
-              <div className="connected-node-name">{getConnectedNodeInfo(connectedNodeId).name}</div>
+              <div className="connected-node-header">
+                <div className="connected-node-name">{getConnectedNodeInfo(connectedNodeId).name}</div>
+                <div className="connected-node-id">ID: {connectedNodeId}</div>
+                <button 
+                  className="jump-to-node-button"
+                  onClick={() => handleJumpToNode(connectedNodeId)}
+                  title={`Jump to node ${connectedNodeId}`}
+                >
+                  🔗 Jump
+                </button>
+              </div>
               <div className="connected-node-value">
                 {connectedValue.value ? `Value: ${connectedValue.value}` : `Type: ${connectedValue.type || 'unknown'}`}
               </div>
@@ -272,7 +346,32 @@ function PropertyDisplay({
         )}
         {isConnection && !connectedValue && (
           <div className="connection-info">
-            <span className="unconnected-label">Socket (no connection)</span>
+            <span className="unconnected-label">Socket connections:</span>
+            {(() => {
+              const allConnectedIds = getAllConnectedNodeIds(propertyValue);
+              if (allConnectedIds.length === 0) {
+                return <div className="no-connections">No connections</div>;
+              }
+              return (
+                <div className="multiple-connections">
+                  {allConnectedIds.map((nodeId) => (
+                    <div key={nodeId} className="connection-item">
+                      <div className="connection-node-info">
+                        <div className="connection-node-name">{getConnectedNodeInfo(nodeId).name}</div>
+                        <div className="connection-node-id">ID: {nodeId}</div>
+                      </div>
+                      <button 
+                        className="jump-to-node-button"
+                        onClick={() => handleJumpToNode(nodeId)}
+                        title={`Jump to node ${nodeId}`}
+                      >
+                        🔗 Jump
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
         {!isConnection && !isNestedObj && (
@@ -302,6 +401,9 @@ export function NodeInspector({
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [size, setSize] = useState({ width: 400, height: 600 });
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const inspectorRef = useRef<HTMLDivElement>(null);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -345,8 +447,39 @@ export function NodeInspector({
     });
   }, [isDragging, dragOffset]);
 
+  const handleResizeMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return;
+    
+    e.preventDefault();
+    
+    const deltaX = e.clientX - resizeStart.x;
+    const deltaY = e.clientY - resizeStart.y;
+    
+    const maxWidth = Math.min(800, window.innerWidth - position.x - 20);
+    const maxHeight = Math.min(window.innerHeight * 0.9, window.innerHeight - position.y - 20);
+    
+    const newWidth = Math.max(300, Math.min(maxWidth, resizeStart.width + deltaX));
+    const newHeight = Math.max(200, Math.min(maxHeight, resizeStart.height + deltaY));
+    
+    setSize({ width: newWidth, height: newHeight });
+  }, [isResizing, resizeStart, position.y]);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    setIsResizing(true);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: size.width,
+      height: size.height
+    });
+  }, [size]);
+
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
+    setIsResizing(false);
   }, []);
 
   useEffect(() => {
@@ -357,6 +490,13 @@ export function NodeInspector({
       // Prevent text selection while dragging
       document.body.style.userSelect = 'none';
       document.body.style.cursor = 'grabbing';
+    } else if (isResizing) {
+      document.addEventListener('mousemove', handleResizeMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      // Prevent text selection while resizing
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'nw-resize';
     } else {
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
@@ -364,11 +504,12 @@ export function NodeInspector({
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mousemove', handleResizeMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
     };
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [isDragging, isResizing, handleMouseMove, handleResizeMouseMove, handleMouseUp]);
 
   if (!selectedNode) {
     return (
@@ -377,7 +518,9 @@ export function NodeInspector({
         className={`node-inspector floating ${isCollapsed ? 'collapsed' : ''}`}
         style={{ 
           left: position.x, 
-          top: position.y
+          top: position.y,
+          width: size.width,
+          height: isCollapsed ? 'auto' : size.height
         }}
       >
         <div 
@@ -432,7 +575,9 @@ export function NodeInspector({
         className={`node-inspector floating ${isCollapsed ? 'collapsed' : ''}`}
         style={{ 
           left: position.x, 
-          top: position.y
+          top: position.y,
+          width: size.width,
+          height: isCollapsed ? 'auto' : size.height
         }}
       >
         <div 
@@ -485,7 +630,7 @@ export function NodeInspector({
 
   const getConnectedNodeId = (_propertyName: string, value: any): string | null => {
     // Extract the connected node ID from the property value
-    if (value && typeof value === 'object' && value !== null) {
+    if (typeof value === 'object' && value !== null) {
       if (value.HandleRefId) {
         return value.HandleRefId;
       }
@@ -497,10 +642,9 @@ export function NodeInspector({
       }
       if (Array.isArray(value) && value.length > 0) {
         const firstItem = value[0];
-        if (firstItem && typeof firstItem === 'object' && firstItem !== null) {
+        if (firstItem && typeof firstItem === 'object') {
           return firstItem.HandleRefId || firstItem.HandleId || 
-                 (firstItem.node && typeof firstItem.node === 'object' && firstItem.node !== null && 
-                  (firstItem.node.HandleRefId || firstItem.node.HandleId));
+                 (firstItem.node && (firstItem.node.HandleRefId || firstItem.node.HandleId));
         }
       }
     }
@@ -509,11 +653,11 @@ export function NodeInspector({
 
   const isConnectionProperty = (_propertyName: string, value: any): boolean => {
     // Check if this property represents a connection to another node
-    if (value && typeof value === 'object') {
+    if (typeof value === 'object' && value !== null) {
       if (value.HandleRefId || value.HandleId) {
         return true;
       }
-      if (value.node && typeof value.node === 'object') {
+      if (value.node && (value.node.HandleRefId || value.node.HandleId)) {
         return true;
       }
       if (Array.isArray(value)) {
@@ -552,27 +696,151 @@ export function NodeInspector({
     }
 
     if (properties.length === 0) {
-      return <div className="no-properties">No properties available</div>;
+      return <div className="no-properties">No displayable properties</div>;
     }
 
     return (
       <div className="properties-list">
-        {properties.map(({ key, value }, index) => {
+        {properties.map(({ key, value }) => {
           const isConnection = isConnectionProperty(key, value);
-          const connectedValue = isConnection ? getConnectedValue(key) : null;
-          const connectedNodeId = isConnection ? getConnectedNodeId(key, value) : null;
-          
+          const connectedValue = isConnection ? getConnectedValue(key) : undefined;
+          const connectedNodeId = isConnection ? getConnectedNodeId(key, value) : undefined;
+
           return (
             <PropertyDisplay
-              key={index}
+              key={key}
               propertyKey={key}
               propertyValue={value}
               isConnection={isConnection}
               connectedValue={connectedValue}
               connectedNodeId={connectedNodeId || undefined}
               nodeRegistry={nodeRegistry}
-              parentPath={selectedNode.id}
+              onJumpToNode={handleJumpToNode}
             />
+          );
+        })}
+      </div>
+    );
+  };
+
+  const handleJumpToNode = (nodeId: string) => {
+    onSearchById(nodeId);
+  };
+
+  const renderOutputConnections = () => {
+    if (!selectedNode) return null;
+
+    // Find all nodes that have this node as an input
+    const outputConnections: Array<{
+      targetNodeId: string;
+      targetNodeData: any;
+      socketName: string;
+    }> = [];
+
+    // Search through all nodes to find connections TO this node
+    for (const [nodeId, nodeData] of nodeRegistry) {
+      if (nodeId === selectedNode.id) continue; // Skip self
+
+      // Check all properties of this node for connections to our selected node
+      const findConnectionsInObject = (obj: any, path: string[] = []) => {
+        if (!obj || typeof obj !== 'object') return;
+
+        for (const [key, value] of Object.entries(obj)) {
+          const currentPath = [...path, key];
+          
+          if (typeof value === 'object' && value !== null) {
+            // Direct HandleRefId reference
+            if ((value as any).HandleRefId === selectedNode.id) {
+              outputConnections.push({
+                targetNodeId: nodeId,
+                targetNodeData: nodeData,
+                socketName: key
+              });
+            }
+            // Direct HandleId reference
+            else if ((value as any).HandleId === selectedNode.id) {
+              outputConnections.push({
+                targetNodeId: nodeId,
+                targetNodeData: nodeData,
+                socketName: key
+              });
+            }
+            // Nested node reference pattern
+            else if ((value as any).node && typeof (value as any).node === 'object') {
+              if ((value as any).node.HandleRefId === selectedNode.id || (value as any).node.HandleId === selectedNode.id) {
+                outputConnections.push({
+                  targetNodeId: nodeId,
+                  targetNodeData: nodeData,
+                  socketName: key
+                });
+              }
+            }
+            // Array of connections
+            else if (Array.isArray(value)) {
+              value.forEach((item, index) => {
+                if (item && typeof item === 'object') {
+                  if (item.HandleRefId === selectedNode.id || item.HandleId === selectedNode.id) {
+                    outputConnections.push({
+                      targetNodeId: nodeId,
+                      targetNodeData: nodeData,
+                      socketName: `${key}[${index}]`
+                    });
+                  } else if (item.node && typeof item.node === 'object') {
+                    if (item.node.HandleRefId === selectedNode.id || item.node.HandleId === selectedNode.id) {
+                      outputConnections.push({
+                        targetNodeId: nodeId,
+                        targetNodeData: nodeData,
+                        socketName: `${key}[${index}]`
+                      });
+                    }
+                  }
+                }
+              });
+            }
+            // Recursively search deeper
+            else {
+              findConnectionsInObject(value, currentPath);
+            }
+          }
+        }
+      };
+
+      findConnectionsInObject(nodeData);
+    }
+
+    if (outputConnections.length === 0) {
+      return (
+        <div className="no-connections">
+          This node's output is not connected to any other nodes
+        </div>
+      );
+    }
+
+    return (
+      <div className="output-connections-list">
+        {outputConnections.map((connection, index) => {
+          const { targetNodeId, socketName } = connection;
+          const nodeInfo = getConnectedNodeInfo(targetNodeId, nodeRegistry);
+          
+          return (
+            <div key={`${targetNodeId}-${socketName}-${index}`} className="output-connection-item">
+              <div className="output-connection-info">
+                <div className="output-connection-header">
+                  <div className="output-connection-node-name">{nodeInfo.name}</div>
+                  <div className="output-connection-node-id">ID: {targetNodeId}</div>
+                </div>
+                <div className="output-connection-socket">
+                  Connected to socket: <span className="socket-name">{socketName}</span>
+                </div>
+              </div>
+              <button 
+                className="jump-to-node-button"
+                onClick={() => handleJumpToNode(targetNodeId)}
+                title={`Jump to node ${targetNodeId}`}
+              >
+                🔗 Jump
+              </button>
+            </div>
           );
         })}
       </div>
@@ -585,7 +853,9 @@ export function NodeInspector({
       className={`node-inspector floating ${isCollapsed ? 'collapsed' : ''}`}
       style={{ 
         left: position.x, 
-        top: position.y
+        top: position.y,
+        width: size.width,
+        height: isCollapsed ? 'auto' : size.height
       }}
     >
       <div 
@@ -633,16 +903,6 @@ export function NodeInspector({
               <span className="info-value">{selectedNode.data.nodeType}</span>
             </div>
             <div className="info-row">
-              <span className="info-label">Label:</span>
-              <span className="info-value">{selectedNode.data.label}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">Position:</span>
-              <span className="info-value">
-                ({Math.round(selectedNode.position.x)}, {Math.round(selectedNode.position.y)})
-              </span>
-            </div>
-            <div className="info-row">
               <span className="info-label">Input Sockets:</span>
               <span className="info-value">{selectedNode.data.inputSockets.length}</span>
             </div>
@@ -652,6 +912,21 @@ export function NodeInspector({
             <h4>Properties</h4>
             {renderProperties(nodeData)}
           </div>
+
+          <div className="output-connections">
+            <h4>Output Connections</h4>
+            {renderOutputConnections()}
+          </div>
+        </div>
+      )}
+      
+      {!isCollapsed && (
+        <div className="inspector-footer">
+          <div 
+            className="resize-handle"
+            onMouseDown={handleResizeStart}
+            title="Drag to resize"
+          />
         </div>
       )}
     </div>
