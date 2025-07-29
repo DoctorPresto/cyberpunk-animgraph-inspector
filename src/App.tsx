@@ -17,7 +17,7 @@ import 'reactflow/dist/style.css';
 
 import { AnimNode } from './components/AnimNode';
 import { NodeInspector } from './components/NodeInspector';
-import { extractAllNodes, extractAllConnections, getColor } from './utils/graphUtils';
+import { extractAllNodesAndConnections, getColor } from './utils/graphUtils';
 import { arrangeLayout, simpleGridLayout } from './utils/layout';
 
 // Electron file handling
@@ -98,7 +98,6 @@ function FlowComponent() {
   };
 
   const processFile = async (file: File) => {
-
     setError(null);
     setIsLoading(true);
     
@@ -107,7 +106,6 @@ function FlowComponent() {
       try {
         const data = JSON.parse(e.target?.result as string);
         console.log('Loaded JSON data:', data);
-        
         await loadGraph(data);
       } catch (err) {
         const errorMessage = `Error processing file: ${(err as Error).message}`;
@@ -132,16 +130,12 @@ function FlowComponent() {
         throw new Error("Invalid AnimGraph JSON: 'nodesToInit' not found.");
       }
       
-      // Step 1: Extract all unique nodes by HandleId
-      const { nodeRegistry, nodeDataMap } = extractAllNodes(nodesInit);
+      // Step 1 & 2: Extract all unique nodes and connections
+      const { nodeRegistry, nodeDataMap, connections } = extractAllNodesAndConnections(nodesInit);
       setNodeRegistry(nodeRegistry);
+      setConnectionValues({}); // connectionValues not implemented but reserved for inspector
       
       console.log(`Found ${nodeRegistry.size} unique nodes`);
-      
-      // Step 2: Extract all connections between nodes
-      const { connections, connectionValues } = extractAllConnections(nodeRegistry);
-      setConnectionValues(connectionValues);
-      
       console.log(`Found ${connections.length} connections`);
       
       // Step 3: Create visual nodes
@@ -219,7 +213,6 @@ function FlowComponent() {
   const getInputSocketsForNodeType = (nodeType: string, nodeData: any): string[] => {
     const sockets: string[] = [];
     
-    // Define input sockets based on node type
     switch (nodeType) {
       case 'Root':
         sockets.push('outputNode');
@@ -238,7 +231,6 @@ function FlowComponent() {
         break;
       case 'BlendMultiple':
         sockets.push('weightNode');
-        // Add inputNodes array sockets
         if (nodeData.inputNodes && Array.isArray(nodeData.inputNodes)) {
           nodeData.inputNodes.forEach((_: any, index: number) => {
             sockets.push(`inputNodes[${index}]`);
@@ -247,7 +239,6 @@ function FlowComponent() {
         break;
       case 'Switch':
         sockets.push('weightNode');
-        // Add inputNodes array sockets
         if (nodeData.inputNodes && Array.isArray(nodeData.inputNodes)) {
           nodeData.inputNodes.forEach((_: any, index: number) => {
             sockets.push(`inputNodes[${index}]`);
@@ -255,7 +246,6 @@ function FlowComponent() {
         }
         break;
       case 'StateMachine':
-        // State machines have states and transitions
         if (nodeData.states && Array.isArray(nodeData.states)) {
           nodeData.states.forEach((_: any, index: number) => {
             sockets.push(`states[${index}]`);
@@ -267,15 +257,7 @@ function FlowComponent() {
           });
         }
         break;
-      case 'FloatConstant':
-      case 'FloatInput':
-      case 'BoolConstant':
-      case 'IntConstant':
-      case 'ReferencePoseTerminator':
-        // These typically don't have input sockets
-        break;
       default:
-        // Most other nodes have inputLink
         sockets.push('inputLink');
         break;
     }
@@ -345,15 +327,7 @@ function FlowComponent() {
   const handleSearchById = useCallback((handleId: string) => {
     const targetNode = nodes.find(node => node.id === handleId);
     if (targetNode) {
-      // Zoom to the node
-      fitView({ 
-        nodes: [targetNode], 
-        padding: 0.3, 
-        duration: 800,
-        maxZoom: 1.2
-      });
-      
-      // Select the node
+      fitView({ nodes: [targetNode], padding: 0.3, duration: 800, maxZoom: 1.2 });
       setSelectedNode(targetNode);
       setInspectorVisible(true);
     } else {
@@ -363,19 +337,13 @@ function FlowComponent() {
   }, [nodes, fitView]);
 
   const handleTypeFilter = useCallback((selectedTypes: string[]) => {
-    if (selectedTypes.length === 0) {
-      setFilteredNodeTypes(new Set());
-    } else {
-      setFilteredNodeTypes(new Set(selectedTypes));
-    }
+    setFilteredNodeTypes(selectedTypes.length === 0 ? new Set() : new Set(selectedTypes));
   }, []);
 
-  // Filter nodes based on selected types
   const displayNodes = filteredNodeTypes.size > 0 
     ? nodes.filter(node => filteredNodeTypes.has(node.data.nodeType))
     : nodes;
 
-  // Filter edges to only show connections between visible nodes
   const displayEdges = filteredNodeTypes.size > 0
     ? edges.filter(edge => {
         const sourceVisible = displayNodes.some(node => node.id === edge.source);
@@ -391,7 +359,7 @@ function FlowComponent() {
         <input 
           type="file" 
           id="file-input" 
-          accept=".animgraph.json" 
+          accept=".json, .animgraph.json" 
           onChange={handleFileChange}
           disabled={isLoading}
         />
